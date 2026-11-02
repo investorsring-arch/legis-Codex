@@ -15,7 +15,9 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
 
   // ---- Accès réservé : session valide obligatoire ----
-  const session = await verifySession(req.headers.get("x-admin-token"));
+  let session;
+  try { session = await verifySession(req.headers.get("x-admin-token")); }
+  catch (e) { return json({ error: `Configuration incomplète : ${(e as Error).message}` }, 500); }
   if (!session) return json({ error: "Veuillez vous connecter." }, 401);
   if (session.role === "admin") {
     const { data } = await supabase.from("rag_admins").select("status").eq("id", session.sub).maybeSingle();

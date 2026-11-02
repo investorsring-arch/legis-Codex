@@ -142,23 +142,27 @@ export async function search(sb: any, query: string, s: Settings): Promise<Sourc
 type Msg = { role: "user" | "assistant"; content: string };
 
 async function callLLM(system: string, messages: Msg[], s: Settings, maxTokens: number, temperature: number): Promise<string> {
-  if (s.llm_provider === "anthropic") {
-    const res = await fetch(env("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": env("ANTHROPIC_API_KEY", env("LLM_API_KEY")), "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: s.llm_model, max_tokens: maxTokens, temperature, system, messages }),
-    });
+  // Certains modèles récents refusent le paramètre « temperature » : on réessaie alors sans.
+  const post = async (url: string, headers: Record<string, string>, body: Record<string, unknown>) => {
+    let res = await fetch(url, { method: "POST", headers, body: JSON.stringify({ ...body, temperature }) });
+    if (res.status === 400) {
+      const t = await res.text();
+      if (!/temperature/i.test(t)) throw new Error(`LLM 400 : ${t.slice(0, 300)}`);
+      res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    }
     if (!res.ok) throw new Error(`LLM ${res.status} : ${(await res.text()).slice(0, 300)}`);
-    const data = await res.json();
+    return res.json();
+  };
+  if (s.llm_provider === "anthropic") {
+    const data = await post(env("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages"),
+      { "Content-Type": "application/json", "x-api-key": env("ANTHROPIC_API_KEY", env("LLM_API_KEY")), "anthropic-version": "2023-06-01" },
+      { model: s.llm_model, max_tokens: maxTokens, system, messages });
     return (data.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
   }
-  const res = await fetch(env("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env("OPENAI_API_KEY", env("LLM_API_KEY"))}` },
-    body: JSON.stringify({ model: s.llm_model, max_tokens: maxTokens, temperature, messages: [{ role: "system", content: system }, ...messages] }),
-  });
-  if (!res.ok) throw new Error(`LLM ${res.status} : ${(await res.text()).slice(0, 300)}`);
-  return (await res.json()).choices?.[0]?.message?.content ?? "";
+  const data = await post(env("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions"),
+    { "Content-Type": "application/json", Authorization: `Bearer ${env("OPENAI_API_KEY", env("LLM_API_KEY"))}` },
+    { model: s.llm_model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, ...messages] });
+  return data.choices?.[0]?.message?.content ?? "";
 }
 
 export function cleanHistory(history: unknown): Msg[] {

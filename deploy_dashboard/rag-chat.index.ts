@@ -107,23 +107,30 @@ async function search(sb, query, s) {
   return (data ?? []).map(normalize).filter((x) => x.content.trim()).map((x, i) => ({ ...x, n: i + 1 }));
 }
 async function callLLM(system, messages, s, maxTokens, temperature) {
+  const post = async (url, headers, body) => {
+    let res = await fetch(url, { method: "POST", headers, body: JSON.stringify({ ...body, temperature }) });
+    if (res.status === 400) {
+      const t = await res.text();
+      if (!/temperature/i.test(t)) throw new Error(`LLM 400 : ${t.slice(0, 300)}`);
+      res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    }
+    if (!res.ok) throw new Error(`LLM ${res.status} : ${(await res.text()).slice(0, 300)}`);
+    return res.json();
+  };
   if (s.llm_provider === "anthropic") {
-    const res2 = await fetch(env("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": env("ANTHROPIC_API_KEY", env("LLM_API_KEY")), "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: s.llm_model, max_tokens: maxTokens, temperature, system, messages })
-    });
-    if (!res2.ok) throw new Error(`LLM ${res2.status} : ${(await res2.text()).slice(0, 300)}`);
-    const data = await res2.json();
-    return (data.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    const data2 = await post(
+      env("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages"),
+      { "Content-Type": "application/json", "x-api-key": env("ANTHROPIC_API_KEY", env("LLM_API_KEY")), "anthropic-version": "2023-06-01" },
+      { model: s.llm_model, max_tokens: maxTokens, system, messages }
+    );
+    return (data2.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
   }
-  const res = await fetch(env("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env("OPENAI_API_KEY", env("LLM_API_KEY"))}` },
-    body: JSON.stringify({ model: s.llm_model, max_tokens: maxTokens, temperature, messages: [{ role: "system", content: system }, ...messages] })
-  });
-  if (!res.ok) throw new Error(`LLM ${res.status} : ${(await res.text()).slice(0, 300)}`);
-  return (await res.json()).choices?.[0]?.message?.content ?? "";
+  const data = await post(
+    env("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions"),
+    { "Content-Type": "application/json", Authorization: `Bearer ${env("OPENAI_API_KEY", env("LLM_API_KEY"))}` },
+    { model: s.llm_model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, ...messages] }
+  );
+  return data.choices?.[0]?.message?.content ?? "";
 }
 function cleanHistory(history) {
   if (!Array.isArray(history)) return [];
@@ -171,7 +178,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "M\xE9thode non autoris\xE9e" }, 405);
   const t0 = Date.now();
-  const session = await verifySession(req.headers.get("x-admin-token"));
+  let session;
+  try {
+    session = await verifySession(req.headers.get("x-admin-token"));
+  } catch (e) {
+    return json({ error: `Configuration incompl\xE8te : ${e.message}` }, 500);
+  }
   if (!session) return json({ error: "Veuillez vous connecter." }, 401);
   if (session.role === "admin") {
     const { data } = await supabase.from("rag_admins").select("status").eq("id", session.sub).maybeSingle();
