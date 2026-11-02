@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Tableau de bord</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script src="session.js"></script>
+  <style>
+    .nav { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+    .nav button { border: 0; background: none; padding: 10px 14px; cursor: pointer; color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .nav button.on { color: var(--accent); border-bottom-color: var(--accent); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+    @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+    textarea.input { resize: vertical; min-height: 170px; font-size: 14px; line-height: 1.5; }
+    .hint { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+    .switch { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; cursor: pointer; }
+    .switch input { width: 18px; height: 18px; accent-color: var(--accent); }
+    .keys { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+    .sub { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--gold); margin: 22px 0 2px; }
+    .save-bar { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">◆</div>
+      <div><h1>Tableau de bord</h1><p id="who">Administration du site</p></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <a class="link-btn" href="index.html">Poser une question</a>
+      <button class="link-btn hidden" id="logout" type="button">Déconnexion</button>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <!-- ================= CONNEXION ================= -->
+    <section id="login-view" class="card login hidden">
+      <h2>Administration</h2>
+      <p class="muted">Connectez-vous pour gérer le site.</p>
+      <form id="login-form">
+        <label for="email">Email <span class="muted" style="font-weight:400">— laisser vide pour l'administrateur principal</span></label>
+        <input class="input" id="email" type="email" autocomplete="username" placeholder="membre@exemple.com">
+        <label for="password">Mot de passe</label>
+        <input class="input" id="password" type="password" autocomplete="current-password" required>
+        <button class="btn" style="width:100%;margin-top:18px" type="submit" id="login-btn">Se connecter</button>
+        <div id="login-msg" class="alert err hidden"></div>
+        <div id="config-warn" class="alert err hidden">Le site n'est pas encore relié à Supabase : ouvrez <b>config.js</b> et renseignez <b>SUPABASE_URL</b> et <b>SUPABASE_ANON_KEY</b>.</div>
+      </form>
+    </section>
+
+    <!-- ================= TABLEAU DE BORD ================= -->
+    <section id="dash-view" class="hidden">
+      <div class="stats">
+        <div class="card stat"><div class="v" id="s-24h">–</div><div class="l">Questions (24 h)</div></div>
+        <div class="card stat"><div class="v" id="s-7d">–</div><div class="l">Questions (7 jours)</div></div>
+        <div class="card stat"><div class="v" id="s-total">–</div><div class="l">Questions au total</div></div>
+        <div class="card stat master-only"><div class="v" id="s-admins">–</div><div class="l">Membres actifs / bloqués</div></div>
+      </div>
+
+      <nav class="nav">
+        <button type="button" class="on master-only" data-tab="members">Membres</button>
+        <button type="button" class="master-only" data-tab="docs">Base documentaire</button>
+        <button type="button" class="master-only" data-tab="assistant">Assistant</button>
+        <button type="button" data-tab="log">Journal des questions</button>
+      </nav>
+
+      <!-- ---------- Membres ---------- -->
+      <div class="card section tab master-only" id="tab-members">
+        <div class="section-head">
+          <h3>Membres autorisés</h3>
+          <span class="muted">Chaque membre se connecte au site avec son email et le mot de passe défini ici.</span>
+        </div>
+        <form id="add-form" class="inline-form">
+          <input class="input" id="new-email" type="email" placeholder="email@exemple.com" required>
+          <input class="input" id="new-pw" type="text" placeholder="Mot de passe (8 caractères min.)" minlength="8" required>
+          <button class="btn ghost" type="button" id="gen-pw">Générer</button>
+          <button class="btn" type="submit">Ajouter</button>
+        </form>
+        <div id="add-msg" class="alert hidden"></div>
+        <div class="table-wrap" style="margin-top:16px">
+          <table class="data">
+            <thead><tr><th>Email</th><th>Statut</th><th>Créé le</th><th>Dernière connexion</th><th></th></tr></thead>
+            <tbody id="admins-body"><tr><td colspan="5" class="empty">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ---------- Base documentaire ---------- -->
+      <div class="card section tab master-only hidden" id="tab-docs">
+        <div class="section-head">
+          <h3>Base documentaire</h3>
+          <span class="muted" id="docs-count">—</span>
+        </div>
+        <p class="muted" style="margin-top:0">Importez vos fichiers JSON (circulaires, notes, documents). Chaque fichier est découpé en extraits, vectorisé puis enregistré dans Supabase.
+          Réimporter un fichier met à jour le document ; seuls les extraits modifiés sont recalculés.</p>
+        <div class="inline-form">
+          <label class="btn ghost" style="margin:0;display:inline-flex;align-items:center">Choisir des fichiers JSON
+            <input type="file" id="pick-files" accept=".json,application/json" multiple hidden></label>
+          <label class="btn ghost" style="margin:0;display:inline-flex;align-items:center">Choisir un dossier
+            <input type="file" id="pick-folder" webkitdirectory multiple hidden></label>
+          <button class="btn" type="button" id="start-import" disabled>Importer</button>
+          <button class="btn ghost hidden" type="button" id="stop-import">Arrêter</button>
+        </div>
+        <div id="import-box" class="hidden" style="margin-top:14px">
+          <div style="display:flex;justify-content:space-between;font-size:13px"><span id="imp-label"></span><span id="imp-pct"></span></div>
+          <div style="height:8px;background:#eef0ec;border-radius:99px;overflow:hidden;margin-top:6px"><div id="imp-bar" style="height:100%;width:0;background:var(--accent);transition:width .2s"></div></div>
+          <div id="imp-log" style="max-height:220px;overflow:auto;font-size:12.5px;margin-top:10px;font-family:ui-monospace,Menlo,monospace;background:#fafbf8;border:1px solid var(--line);border-radius:10px;padding:8px 10px"></div>
+        </div>
+        <div class="section-head" style="margin-top:22px">
+          <h3 style="font-size:15px">Documents indexés</h3>
+          <input class="input" id="doc-filter" placeholder="Filtrer (numéro, titre, fichier)…" style="max-width:320px">
+        </div>
+        <div class="table-wrap" style="max-height:520px;overflow:auto">
+          <table class="data">
+            <thead><tr><th>Type</th><th>Document</th><th>Date</th><th>Extraits</th><th>Mis à jour</th><th></th></tr></thead>
+            <tbody id="docs-body"><tr><td colspan="6" class="empty">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ---------- Assistant ---------- -->
+      <div class="card section tab master-only hidden" id="tab-assistant">
+        <div class="section-head">
+          <h3>Assistant de recherche</h3>
+          <span class="muted">Comment l'IA cherche dans la base et rédige ses réponses.</span>
+        </div>
+        <form id="settings-form">
+          <div class="sub">Consignes de l'assistant</div>
+          <label for="st-prompt">Instructions (rôle, ton, règles de réponse)</label>
+          <textarea class="input" id="st-prompt"></textarea>
+          <div class="hint">L'assistant reçoit ces consignes puis les extraits trouvés dans la base. Gardez la règle « répondre uniquement à partir des extraits » pour éviter les inventions.</div>
+
+          <div class="grid2">
+            <div>
+              <label for="st-lang">Langue des réponses</label>
+              <select class="input" id="st-lang">
+                <option value="auto">Langue de la question</option>
+                <option value="fr">Français</option><option value="en">Anglais</option>
+                <option value="ar">Arabe</option><option value="es">Espagnol</option>
+              </select>
+            </div>
+            <div>
+              <label for="st-sugg">Questions suggérées (une par ligne)</label>
+              <textarea class="input" id="st-sugg" style="min-height:76px"></textarea>
+            </div>
+          </div>
+
+          <div class="sub">Modèle de langage</div>
+          <div class="grid2">
+            <div>
+              <label for="st-provider">Fournisseur</label>
+              <select class="input" id="st-provider"><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option></select>
+              <div class="keys" id="keys"></div>
+            </div>
+            <div>
+              <label for="st-model">Modèle</label>
+              <input class="input" id="st-model" list="models">
+              <datalist id="models">
+                <option value="claude-sonnet-5-5"><option value="claude-opus-5-5"><option value="claude-haiku-5-5">
+                <option value="gpt-4.1-mini"><option value="gpt-4.1">
+              </datalist>
+            </div>
+            <div>
+              <label for="st-temp">Créativité (température) : <span id="st-temp-v"></span></label>
+              <input id="st-temp" type="range" min="0" max="1" step="0.05" style="width:100%;accent-color:var(--accent)">
+              <div class="hint">0 = factuel et constant · 1 = plus libre. Recommandé : 0,1 à 0,3.</div>
+            </div>
+            <div>
+              <label for="st-maxtok">Longueur maximale de réponse (tokens)</label>
+              <input class="input" id="st-maxtok" type="number" min="200" max="8000" step="100">
+            </div>
+          </div>
+          <label class="switch"><input type="checkbox" id="st-hybrid"> Recherche hybride : sens + mots exacts (recommandé pour les numéros de circulaires, articles, codes SH)</label>
+          <label class="switch"><input type="checkbox" id="st-rewrite"> Reformuler les questions de suivi avant la recherche (« et pour l'export ? » → requête complète)</label>
+
+          <div class="sub">Recherche dans la base Supabase</div>
+          <div class="grid2">
+            <div>
+              <label for="st-fn">Fonction de recherche (RPC)</label>
+              <input class="input" id="st-fn" placeholder="match_documents">
+            </div>
+            <div>
+              <label for="st-count">Nombre d'extraits utilisés</label>
+              <input class="input" id="st-count" type="number" min="1" max="30">
+            </div>
+            <div>
+              <label for="st-thr">Seuil de similarité (vide = non envoyé)</label>
+              <input class="input" id="st-thr" type="number" min="0" max="1" step="0.05" placeholder="ex. 0.5">
+              <div class="hint">À renseigner seulement si votre fonction attend un paramètre <code>match_threshold</code>.</div>
+            </div>
+            <div>
+              <label for="st-extra">Paramètres supplémentaires (JSON)</label>
+              <input class="input" id="st-extra" placeholder='ex. {"filter": {}}'>
+            </div>
+            <div>
+              <label for="st-emb">Modèle d'embedding</label>
+              <input class="input" id="st-emb" placeholder="text-embedding-3-small">
+              <div class="hint">Doit être identique à celui utilisé pour indexer vos documents.</div>
+            </div>
+            <div>
+              <label for="st-dims">Dimensions (vide = par défaut)</label>
+              <input class="input" id="st-dims" type="number" min="64" max="4096" placeholder="ex. 1536">
+            </div>
+          </div>
+
+          <div class="sub">Tester</div>
+          <div class="inline-form" style="margin-top:8px">
+            <input class="input" id="test-q" placeholder="Saisissez une requête pour vérifier ce que la base renvoie…">
+            <button class="btn ghost" type="button" id="test-btn">Tester la recherche</button>
+          </div>
+          <div id="test-out"></div>
+
+          <div id="st-msg" class="alert hidden"></div>
+          <div class="save-bar">
+            <button class="btn ghost" type="button" id="st-reset">Rétablir les valeurs par défaut</button>
+            <button class="btn" type="submit">Enregistrer les réglages</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- ---------- Journal ---------- -->
+      <div class="card section tab hidden" id="tab-log">
+        <div class="section-head">
+          <h3>Dernières questions posées</h3>
+          <button class="btn ghost sm" id="refresh" type="button">Actualiser</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Date</th><th>Membre</th><th>Question / réponse</th><th>Sources</th><th>Durée</th></tr></thead>
+            <tbody id="queries-body"><tr><td colspan="5" class="empty">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal-bg hidden">
+    <div class="card modal">
+      <h4 id="modal-title"></h4>
+      <p class="muted" id="modal-text"></p>
+      <input class="input hidden" id="modal-input" type="text">
+      <div class="row">
+        <button class="btn ghost" id="modal-cancel" type="button">Annuler</button>
+        <button class="btn" id="modal-ok" type="button">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = RAG.esc;
+const fmt = (d) => d ? new Date(d).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
+let role = null;
+
+async function api(action, params = {}) {
+  try { return await RAG.call("admin-api", { action, ...params }); }
+  catch (e) { if (action !== "login" && (e.status === 401 || (e.status === 403 && /révoqué/.test(e.message)))) showLogin(e.message); throw e; }
+}
+
+// ---------- Modale ----------
+function modal({ title, text, input, okLabel = "Confirmer", danger = false }) {
+  return new Promise((resolve) => {
+    $("#modal-title").textContent = title; $("#modal-text").textContent = text || "";
+    const inp = $("#modal-input"); inp.classList.toggle("hidden", !input); inp.value = ""; inp.placeholder = input || "";
+    const ok = $("#modal-ok"); ok.textContent = okLabel; ok.className = "btn" + (danger ? " danger" : "");
+    $("#modal").classList.remove("hidden"); if (input) inp.focus();
+    const close = (v) => { $("#modal").classList.add("hidden"); ok.onclick = $("#modal-cancel").onclick = null; resolve(v); };
+    ok.onclick = () => close(input ? inp.value : true);
+    $("#modal-cancel").onclick = () => close(null);
+  });
+}
+
+// ---------- Connexion ----------
+function showLogin(message) {
+  RAG.clear(); role = null;
+  $("#dash-view").classList.add("hidden"); $("#logout").classList.add("hidden");
+  $("#login-view").classList.remove("hidden");
+  $("#who").textContent = "Administration du site";
+  const m = $("#login-msg"); m.classList.toggle("hidden", !message); m.textContent = message || "";
+  $("#config-warn").classList.toggle("hidden", RAG.configured());
+}
+$("#login-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = $("#login-btn"); btn.disabled = true; $("#login-msg").classList.add("hidden");
+  try {
+    const params = { password: $("#password").value };
+    const email = $("#email").value.trim();
+    if (email) params.email = email;     // vide = administrateur principal
+    const r = await api("login", params);
+    RAG.set({ token: r.token, role: r.role, email: r.email || "" });
+    $("#password").value = "";
+    showDashboard(r.role);
+  } catch (err) { $("#login-msg").textContent = err.message; $("#login-msg").classList.remove("hidden"); }
+  finally { btn.disabled = false; }
+};
+$("#logout").onclick = () => showLogin();
+
+// ---------- Tableau de bord ----------
+function showDashboard(r) {
+  role = r;
+  const isMaster = role === "master";
+  $("#login-view").classList.add("hidden");
+  $("#dash-view").classList.remove("hidden"); $("#logout").classList.remove("hidden");
+  $("#who").textContent = isMaster ? "Administrateur principal" : `Membre · ${RAG.get()?.email || ""}`;
+  document.querySelectorAll(".master-only").forEach((n) => n.classList.toggle("hidden", !isMaster));
+  openTab(isMaster ? "members" : "log");
+  loadStats(); loadQueries();
+  if (isMaster) { loadAdmins(); loadSettings(); loadDocs(); }
+}
+function openTab(name) {
+  document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("hidden", t.id !== "tab-" + name || (t.classList.contains("master-only") && role !== "master")));
+}
+document.querySelectorAll(".nav button").forEach((b) => b.onclick = () => openTab(b.dataset.tab));
+
+async function loadStats() {
+  try {
+    const s = await api("stats");
+    $("#s-24h").textContent = s.last24h; $("#s-7d").textContent = s.last7d; $("#s-total").textContent = s.total;
+    $("#s-admins").textContent = `${s.activeAdmins} / ${s.blockedAdmins}`;
+  } catch (e) { console.error(e); }
+}
+
+// ---------- Membres ----------
+async function loadAdmins() {
+  const body = $("#admins-body");
+  try {
+    const { admins } = await api("list_admins");
+    if (!admins.length) { body.innerHTML = `<tr><td colspan="5" class="empty">Aucun membre pour l'instant. Ajoutez le premier ci-dessus.</td></tr>`; return; }
+    body.innerHTML = admins.map((a) => `
+      <tr data-id="${a.id}" data-email="${esc(a.email)}">
+        <td>${esc(a.email)}</td>
+        <td><span class="badge ${a.status}">${a.status === "active" ? "Actif" : "Bloqué"}</span></td>
+        <td>${fmt(a.created_at)}</td><td>${fmt(a.last_login_at)}</td>
+        <td class="actions">
+          <button class="btn ghost sm" data-act="${a.status === "active" ? "block" : "unblock"}">${a.status === "active" ? "Bloquer" : "Débloquer"}</button>
+          <button class="btn ghost sm" data-act="reset">Mot de passe</button>
+          <button class="btn danger sm" data-act="delete">Supprimer</button>
+        </td>
+      </tr>`).join("");
+  } catch (e) { body.innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`; }
+}
+$("#admins-body").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]"); if (!btn) return;
+  const tr = btn.closest("tr"), id = tr.dataset.id, email = tr.dataset.email;
+  try {
+    if (btn.dataset.act === "block" || btn.dataset.act === "unblock") {
+      const block = btn.dataset.act === "block";
+      if (!(await modal({ title: block ? "Bloquer ce membre ?" : "Débloquer ce membre ?",
+        text: block ? `${email} ne pourra plus se connecter (effet immédiat).` : `${email} pourra de nouveau se connecter.`,
+        okLabel: block ? "Bloquer" : "Débloquer", danger: block }))) return;
+      await api("set_status", { id, status: block ? "blocked" : "active" });
+    } else if (btn.dataset.act === "reset") {
+      const pw = await modal({ title: "Nouveau mot de passe", text: `Pour ${email} (8 caractères minimum).`, input: "Nouveau mot de passe", okLabel: "Enregistrer" });
+      if (!pw) return;
+      await api("reset_password", { id, password: pw });
+    } else if (btn.dataset.act === "delete") {
+      if (!(await modal({ title: "Supprimer définitivement ?", text: `Le compte ${email} sera supprimé. Cette action est irréversible.`, okLabel: "Supprimer", danger: true }))) return;
+      await api("delete_admin", { id });
+    }
+    loadAdmins(); loadStats();
+  } catch (err) { await modal({ title: "Erreur", text: err.message, okLabel: "OK" }); }
+});
+$("#gen-pw").onclick = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#%";
+  $("#new-pw").value = Array.from(crypto.getRandomValues(new Uint32Array(14)), (n) => chars[n % chars.length]).join("");
+};
+$("#add-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const msg = $("#add-msg"), email = $("#new-email").value, password = $("#new-pw").value;
+  try {
+    await api("create_admin", { email, password });
+    msg.className = "alert ok"; msg.textContent = `Membre ${email} créé. Transmettez-lui son mot de passe de manière sécurisée.`;
+    $("#add-form").reset(); loadAdmins(); loadStats();
+  } catch (err) { msg.className = "alert err"; msg.textContent = err.message; }
+};
+
+// ---------- Assistant ----------
+function fillSettings(s) {
+  $("#st-prompt").value = s.system_prompt || "";
+  $("#st-lang").value = s.answer_language || "auto";
+  $("#st-sugg").value = (s.suggestions || []).join("\n");
+  $("#st-provider").value = s.llm_provider;
+  $("#st-model").value = s.llm_model;
+  $("#st-temp").value = s.temperature; $("#st-temp-v").textContent = s.temperature;
+  $("#st-maxtok").value = s.max_tokens;
+  $("#st-rewrite").checked = !!s.rewrite_query;
+  $("#st-hybrid").checked = s.hybrid_search !== false;
+  $("#st-fn").value = s.match_function;
+  $("#st-count").value = s.match_count;
+  $("#st-thr").value = s.match_threshold ?? "";
+  $("#st-extra").value = s.match_extra_params || "";
+  $("#st-emb").value = s.embedding_model;
+  $("#st-dims").value = s.embedding_dimensions ?? "";
+}
+function readSettings() {
+  return {
+    system_prompt: $("#st-prompt").value,
+    answer_language: $("#st-lang").value,
+    suggestions: $("#st-sugg").value.split("\n"),
+    llm_provider: $("#st-provider").value,
+    llm_model: $("#st-model").value,
+    temperature: Number($("#st-temp").value),
+    max_tokens: Number($("#st-maxtok").value),
+    rewrite_query: $("#st-rewrite").checked,
+    hybrid_search: $("#st-hybrid").checked,
+    match_function: $("#st-fn").value.trim(),
+    match_count: Number($("#st-count").value),
+    match_threshold: $("#st-thr").value === "" ? null : Number($("#st-thr").value),
+    match_extra_params: $("#st-extra").value,
+    embedding_model: $("#st-emb").value,
+    embedding_dimensions: $("#st-dims").value === "" ? null : Number($("#st-dims").value),
+  };
+}
+function showKeys(k) {
+  const tag = (ok, label) => `<span class="badge ${ok ? "active" : "blocked"}">${label} ${ok ? "configurée" : "manquante"}</span>`;
+  $("#keys").innerHTML = tag(k.anthropic, "Clé Anthropic") + tag(k.openai, "Clé OpenAI") + tag(k.embeddings, "Clé embeddings");
+}
+function stMsg(text, ok) { const m = $("#st-msg"); m.className = "alert " + (ok ? "ok" : "err"); m.textContent = text; }
+async function loadSettings() {
+  try { const r = await api("get_settings"); fillSettings(r.settings); showKeys(r.keys); }
+  catch (e) { stMsg(e.message, false); }
+}
+$("#st-temp").oninput = () => { $("#st-temp-v").textContent = $("#st-temp").value; };
+$("#st-provider").onchange = () => {
+  const m = $("#st-model").value;
+  if ($("#st-provider").value === "openai" && m.startsWith("claude")) $("#st-model").value = "gpt-4.1-mini";
+  if ($("#st-provider").value === "anthropic" && m.startsWith("gpt")) $("#st-model").value = "claude-sonnet-5-5";
+};
+$("#settings-form").onsubmit = async (e) => {
+  e.preventDefault();
+  try { const r = await api("save_settings", { settings: readSettings() }); fillSettings(r.settings); stMsg("Réglages enregistrés — ils s'appliquent dès la prochaine question.", true); }
+  catch (err) { stMsg(err.message, false); }
+};
+$("#st-reset").onclick = async () => {
+  if (!(await modal({ title: "Rétablir les valeurs par défaut ?", text: "Les consignes et réglages personnalisés de l'assistant seront effacés.", okLabel: "Rétablir", danger: true }))) return;
+  try { const r = await api("reset_settings"); fillSettings(r.settings); stMsg("Valeurs par défaut rétablies.", true); }
+  catch (err) { stMsg(err.message, false); }
+};
+$("#test-btn").onclick = async () => {
+  const out = $("#test-out"), btn = $("#test-btn");
+  btn.disabled = true; out.innerHTML = `<p class="muted">Recherche en cours…</p>`;
+  try {
+    const r = await api("test_search", { query: $("#test-q").value, settings: readSettings() });
+    out.innerHTML = r.sources.length
+      ? `<p class="muted">${r.sources.length} extrait(s) en ${(r.ms / 1000).toFixed(1)} s — la connexion à la base fonctionne.</p>` +
+        r.sources.map((s) => `<div class="source">${s.similarity != null ? `<span class="sim">${Math.round(s.similarity * 100)} %</span>` : ""}<b>[${s.n}] ${esc(s.title)}</b><p>${esc(s.excerpt)}…</p></div>`).join("")
+      : `<div class="alert err">Connexion OK mais aucun extrait renvoyé : vérifiez le seuil, le modèle d'embedding ou le contenu de la table.</div>`;
+  } catch (err) { out.innerHTML = `<div class="alert err">${esc(err.message)}</div>`; }
+  finally { btn.disabled = false; }
+};
+
+
+// ---------- Base documentaire ----------
+let pending = [], stopFlag = false, allDocs = [];
+const TYPE_LABEL = { circulaire: "Circulaire", note: "Note", document: "Document", fiche: "Fiche", liste: "Liste" };
+function pickFiles(list) {
+  pending = [...list].filter((f) => /\.json$/i.test(f.name));
+  $("#start-import").disabled = !pending.length;
+  $("#start-import").textContent = pending.length ? `Importer ${pending.length} fichier(s)` : "Importer";
+}
+$("#pick-files").onchange = (e) => pickFiles(e.target.files);
+$("#pick-folder").onchange = (e) => pickFiles(e.target.files);
+$("#stop-import").onclick = () => { stopFlag = true; $("#stop-import").disabled = true; };
+
+function logLine(html, cls) {
+  const d = document.createElement("div"); d.innerHTML = html; if (cls) d.style.color = cls;
+  $("#imp-log").prepend(d);
+}
+$("#start-import").onclick = async () => {
+  const files = pending; if (!files.length) return;
+  stopFlag = false;
+  $("#import-box").classList.remove("hidden"); $("#imp-log").innerHTML = "";
+  $("#start-import").disabled = true; $("#stop-import").classList.remove("hidden"); $("#stop-import").disabled = false;
+  let done = 0, ok = 0, ko = 0, chunks = 0, embedded = 0; const t0 = Date.now(); const failed = [];
+  const update = () => {
+    const pct = Math.round((done / files.length) * 100);
+    $("#imp-bar").style.width = pct + "%"; $("#imp-pct").textContent = pct + " %";
+    $("#imp-label").textContent = `${done}/${files.length} fichiers · ${ok} réussis · ${ko} en erreur · ${chunks} extraits (${embedded} vectorisés)`;
+  };
+  update();
+  const queue = [...files];
+  async function worker() {
+    while (queue.length && !stopFlag) {
+      const f = queue.shift();
+      try {
+        const data = RAG.parseJsonLenient(await f.text());
+        let r;
+        for (let attempt = 1; ; attempt++) {
+          try { r = await api("ingest_file", { file_name: f.name, data }); break; }
+          catch (e) { if (attempt >= 3 || ![429, 500, 502, 503, 504].includes(e.status)) throw e; await new Promise((z) => setTimeout(z, 2000 * attempt)); }
+        }
+        ok++; chunks += r.chunks; embedded += r.embedded;
+        logLine(`✓ ${esc(f.name)} — ${r.chunks} extraits${r.embedded < r.chunks ? ` (${r.chunks - r.embedded} inchangés)` : ""}`);
+      } catch (e) {
+        ko++; failed.push(f.name);
+        logLine(`✗ ${esc(f.name)} — ${esc(e instanceof SyntaxError ? "JSON invalide : " + e.message : e.message)}`, "var(--danger)");
+      }
+      done++; update();
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+  const secs = Math.round((Date.now() - t0) / 1000);
+  logLine(`<b>${stopFlag ? "Import arrêté" : "Import terminé"} en ${secs} s : ${ok} fichier(s) importé(s), ${ko} en erreur.</b>${failed.length ? "<br>À corriger : " + failed.map(esc).join(", ") : ""}`, ko ? "var(--danger)" : "var(--accent)");
+  $("#stop-import").classList.add("hidden"); $("#start-import").disabled = false;
+  loadDocs();
+};
+
+async function loadDocs() {
+  try {
+    const r = await api("list_documents");
+    allDocs = r.documents;
+    $("#docs-count").textContent = `${r.documents.length} document(s) · ${r.chunks_total} extraits`;
+    renderDocs();
+  } catch (e) { $("#docs-body").innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`; }
+}
+function renderDocs() {
+  const q = $("#doc-filter").value.toLowerCase();
+  const list = allDocs.filter((d) => !q || [d.titre, d.numero, d.file_name].some((x) => (x || "").toLowerCase().includes(q)));
+  if (!list.length) { $("#docs-body").innerHTML = `<tr><td colspan="6" class="empty">${allDocs.length ? "Aucun résultat." : "Aucun document pour l'instant : importez vos fichiers JSON ci-dessus."}</td></tr>`; return; }
+  $("#docs-body").innerHTML = list.slice(0, 500).map((d) => `
+    <tr data-id="${d.id}" data-name="${esc(d.titre)}">
+      <td><span class="badge active">${TYPE_LABEL[d.doc_type] || esc(d.doc_type)}</span></td>
+      <td class="q-cell"><div>${esc(d.titre)}</div><div class="a">${esc(d.file_name)}${d.statut ? " · " + esc(d.statut) : ""}</div></td>
+      <td style="white-space:nowrap">${d.date_doc ? new Date(d.date_doc).toLocaleDateString("fr-FR") : "—"}</td>
+      <td>${d.chunks_count}</td>
+      <td style="white-space:nowrap">${fmt(d.updated_at)}</td>
+      <td class="actions"><button class="btn danger sm" data-del>Supprimer</button></td>
+    </tr>`).join("");
+}
+$("#doc-filter").oninput = renderDocs;
+$("#docs-body").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-del]"); if (!b) return;
+  const tr = b.closest("tr");
+  if (!(await modal({ title: "Supprimer ce document ?", text: `« ${tr.dataset.name} » et tous ses extraits seront retirés de la base.`, okLabel: "Supprimer", danger: true }))) return;
+  try { await api("delete_document", { id: tr.dataset.id }); loadDocs(); }
+  catch (err) { await modal({ title: "Erreur", text: err.message, okLabel: "OK" }); }
+});
+
+// ---------- Journal ----------
+async function loadQueries() {
+  const body = $("#queries-body");
+  try {
+    const { queries } = await api("list_queries", { limit: 50 });
+    if (!queries.length) { body.innerHTML = `<tr><td colspan="5" class="empty">Aucune question pour l'instant.</td></tr>`; return; }
+    body.innerHTML = queries.map((q) => `
+      <tr>
+        <td style="white-space:nowrap">${fmt(q.created_at)}</td>
+        <td>${esc(q.user_email || "—")}</td>
+        <td class="q-cell"><div>${esc(q.question)}</div>
+          ${q.search_query ? `<div class="a">Recherche : ${esc(q.search_query)}</div>` : ""}
+          <div class="a">${q.error ? `<span style="color:var(--danger)">Erreur : ${esc(q.error)}</span>` : esc(q.answer)}</div></td>
+        <td>${q.sources_count ?? "—"}</td>
+        <td>${q.latency_ms != null ? (q.latency_ms / 1000).toFixed(1) + " s" : "—"}</td>
+      </tr>`).join("");
+  } catch (e) { body.innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`; }
+}
+$("#refresh").onclick = () => { loadStats(); loadQueries(); };
+
+// ---------- Démarrage ----------
+if (RAG.get()) api("me").then((r) => showDashboard(r.role)).catch(() => showLogin());
+else showLogin();
+</script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Espace privé</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script src="session.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+</head>
+<body class="chat-page">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">◆</div>
+      <div><h1 id="site-title"></h1><p id="site-subtitle"></p></div>
+    </div>
+    <div id="top-actions" class="hidden" style="display:flex;gap:8px;align-items:center">
+      <span class="muted" id="who" style="font-size:13px"></span>
+      <button class="link-btn hidden" id="new-chat" type="button">Nouvelle conversation</button>
+      <a class="link-btn" href="admin.html">Tableau de bord</a>
+      <button class="link-btn" id="logout" type="button">Déconnexion</button>
+    </div>
+  </header>
+
+  <!-- ======== CONNEXION (obligatoire) ======== -->
+  <main id="login-view" class="admin-main hidden">
+    <section class="card login">
+      <h2>Accès réservé aux membres</h2>
+      <p class="muted">Connectez-vous pour consulter la base documentaire.</p>
+      <form id="login-form">
+        <label for="email">Email <span class="muted" style="font-weight:400">— laisser vide pour l'administrateur principal</span></label>
+        <input class="input" id="email" type="email" autocomplete="username" placeholder="membre@exemple.com">
+        <label for="password">Mot de passe</label>
+        <input class="input" id="password" type="password" autocomplete="current-password" required>
+        <button class="btn" style="width:100%;margin-top:18px" type="submit" id="login-btn">Se connecter</button>
+        <div id="login-msg" class="alert err hidden"></div>
+        <div id="config-warn" class="alert err hidden">Le site n'est pas encore relié à Supabase : ouvrez <b>config.js</b> et renseignez <b>SUPABASE_URL</b> et <b>SUPABASE_ANON_KEY</b>.</div>
+      </form>
+    </section>
+  </main>
+
+  <!-- ======== ESPACE QUESTIONS ======== -->
+  <div id="app" class="hidden">
+    <main id="thread">
+      <section class="welcome" id="welcome">
+        <h2>Que souhaitez-vous savoir ?</h2>
+        <p>Les réponses sont rédigées à partir des documents de la base et citent leurs sources.</p>
+        <div class="suggestions" id="suggestions"></div>
+      </section>
+    </main>
+    <div class="composer-wrap">
+      <form class="composer" id="ask-form">
+        <textarea id="q" rows="1" placeholder="Posez votre question…" maxlength="2000" aria-label="Votre question"></textarea>
+        <button class="btn" id="send" type="submit">Envoyer</button>
+      </form>
+      <p class="disclaimer">Réponses générées par IA à partir de la base documentaire — vérifiez les sources citées.</p>
+    </div>
+  </div>
+
+<script>
+const { C, esc } = RAG;
+const $ = (s) => document.querySelector(s);
+const thread = $("#thread"), form = $("#ask-form"), input = $("#q"), send = $("#send");
+let history = [], busy = false;
+
+document.title = C.SITE_TITLE;
+$("#site-title").textContent = C.SITE_TITLE;
+$("#site-subtitle").textContent = C.SITE_SUBTITLE;
+function renderSuggestions(list) {
+  const box = $("#suggestions"); box.innerHTML = "";
+  (list || []).forEach((s) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "suggestion"; b.textContent = s;
+    b.onclick = () => ask(s);
+    box.appendChild(b);
+  });
+}
+
+// ---------- Connexion ----------
+function showLogin(message) {
+  RAG.clear();
+  $("#app").classList.add("hidden"); $("#top-actions").classList.add("hidden");
+  $("#login-view").classList.remove("hidden");
+  const m = $("#login-msg");
+  m.classList.toggle("hidden", !message); m.textContent = message || "";
+  $("#config-warn").classList.toggle("hidden", RAG.configured());
+}
+function showApp() {
+  const s = RAG.get();
+  $("#login-view").classList.add("hidden");
+  $("#app").classList.remove("hidden"); $("#top-actions").classList.remove("hidden");
+  $("#who").textContent = s.role === "master" ? "Administrateur principal" : s.email;
+  // Suggestions définies dans le tableau de bord (sinon celles de config.js)
+  RAG.call("admin-api", { action: "client_settings" })
+    .then((r) => renderSuggestions(r.suggestions?.length ? r.suggestions : C.SUGGESTIONS))
+    .catch(() => renderSuggestions(C.SUGGESTIONS));
+  input.focus();
+}
+
+
+$("#login-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = $("#login-btn"); btn.disabled = true; $("#login-msg").classList.add("hidden");
+  try {
+    const params = { action: "login", password: $("#password").value };
+    const email = $("#email").value.trim();
+    if (email) params.email = email;     // vide = administrateur principal
+    const r = await RAG.call("admin-api", params);
+    RAG.set({ token: r.token, role: r.role, email: r.email || "" });
+    $("#password").value = "";
+    showApp();
+  } catch (err) {
+    $("#login-msg").textContent = err.message; $("#login-msg").classList.remove("hidden");
+  } finally { btn.disabled = false; }
+};
+
+$("#logout").onclick = () => showLogin();
+
+// ---------- Questions ----------
+function renderAnswer(md, msgId) {
+  const html = DOMPurify.sanitize(marked.parse(md || ""));
+  return html.replace(/\[(\d{1,2})\]/g, (_, n) => `<a class="cite" href="#${msgId}-src-${n}">${n}</a>`);
+}
+function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 180) + "px"; }
+input.addEventListener("input", autosize);
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
+form.addEventListener("submit", (e) => { e.preventDefault(); ask(input.value); });
+$("#new-chat").onclick = () => {
+  history = [];
+  thread.querySelectorAll(".msg-q, .msg-a").forEach((n) => n.remove());
+  $("#welcome").classList.remove("hidden"); $("#new-chat").classList.add("hidden");
+  input.focus();
+};
+
+async function ask(text) {
+  const question = text.trim();
+  if (!question || busy) return;
+  if (!RAG.get()) return showLogin("Session expirée, veuillez vous reconnecter.");
+  busy = true; send.disabled = true; input.value = ""; autosize();
+  $("#welcome").classList.add("hidden"); $("#new-chat").classList.remove("hidden");
+
+  const msgId = "m" + Date.now();
+  const q = document.createElement("div");
+  q.className = "msg-q"; q.innerHTML = `<div>${esc(question)}</div>`;
+  const a = document.createElement("div");
+  a.className = "msg-a"; a.id = msgId;
+  a.innerHTML = `<div class="typing"><span></span><span></span><span></span></div>`;
+  thread.append(q, a);
+  q.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  try {
+    const data = await RAG.call("rag-chat", { question, history });
+    const sources = (data.sources || []).map((s) => `
+      <div class="source" id="${msgId}-src-${s.n}">
+        ${s.similarity != null ? `<span class="sim">${Math.round(s.similarity * 100)} %</span>` : ""}
+        <b>[${s.n}] ${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>` : esc(s.title)}</b>
+        <p>${esc(s.excerpt)}${s.excerpt && s.excerpt.length >= 400 ? "…" : ""}</p>
+      </div>`).join("");
+    a.innerHTML = `<div class="answer">${renderAnswer(data.answer, msgId)}</div>` +
+      (sources ? `<details class="sources"><summary>Sources consultées (${data.sources.length})</summary>${sources}</details>` : "");
+    a.querySelectorAll(".cite").forEach((c) => c.addEventListener("click", () => { a.querySelector("details").open = true; }));
+    history.push({ role: "user", content: question }, { role: "assistant", content: data.answer || "" });
+    history = history.slice(-8);
+  } catch (err) {
+    if (err.status === 401 || err.status === 403) { showLogin(err.message); }
+    else { a.classList.add("error"); a.textContent = err.message || "Une erreur est survenue."; }
+  } finally { busy = false; send.disabled = false; }
+}
+
+// ---------- Démarrage : session valide ou écran de connexion ----------
+if (RAG.get()) {
+  RAG.call("admin-api", { action: "me" }).then(showApp).catch((e) => showLogin(e.status ? e.message : ""));
+} else {
+  showLogin();
+}
+</script>
+</body>
+</html>

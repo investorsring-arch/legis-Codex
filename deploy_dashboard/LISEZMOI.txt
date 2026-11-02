@@ -1,0 +1,29 @@
+INSTALLATION SANS TERMINAL — projet shnniddpgtnukexuzhxc
+=========================================================
+
+1. BASE DE DONNÉES
+   Supabase > SQL Editor > New query > coller installation_complete.sql > Run
+
+2. SECRETS
+   Supabase > Edge Functions > Secrets > Add new secret, une ligne par secret de .env.local :
+     MASTER_PASSWORD     123
+     SESSION_SECRET      (la valeur déjà générée dans .env.local)
+     OPENAI_API_KEY      votre clé OpenAI (embeddings)
+     ANTHROPIC_API_KEY   votre clé Claude
+     LLM_PROVIDER        anthropic
+   (astuce : le bouton « Bulk / coller un .env » accepte le contenu de .env.local)
+
+3. FONCTIONS (deux fois)
+   Supabase > Edge Functions > Deploy a new function > Via Editor
+     - nom : admin-api  -> coller tout admin-api.index.ts -> Deploy
+     - nom : rag-chat   -> coller tout rag-chat.index.ts  -> Deploy
+   Puis, pour CHACUNE : Details / Settings > désactiver « Enforce JWT verification » (Verify JWT) > Save.
+
+4. SITE
+   Supabase > Project Settings > API Keys > copier la clé « publishable » (sb_publishable_…)
+   ou l'ancienne clé « anon » -> la coller dans public/config.js (SUPABASE_ANON_KEY).
+   L'URL du projet y est déjà renseignée.
+
+5. TEST
+   Ouvrir public/admin.html -> email vide, mot de passe 123
+   -> onglet Base documentaire -> Choisir un dossier -> Importer.

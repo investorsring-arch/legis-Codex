@@ -1,0 +1,9 @@
+project_id = "rag-site"
+
+# Les deux fonctions gèrent elles-mêmes l'authentification
+# (page publique = sans connexion ; admin = jeton de session maison).
+[functions.rag-chat]
+verify_jwt = false
+
+[functions.admin-api]
+verify_jwt = false
