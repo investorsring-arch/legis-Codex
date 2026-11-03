@@ -70,7 +70,7 @@ export function prepare(fileName: string, data: unknown): Prepared {
 
   let type: string;
   let header: Record<string, any>;
-  let raw: { id: string; content: string; metadata: Record<string, any> }[];
+  let raw: { id: string; content: string; metadata: Record<string, any>; index?: number }[];
 
   if (Array.isArray(data.chunks)) {
     // ---- Formats 1 et 2 ----
@@ -83,7 +83,8 @@ export function prepare(fileName: string, data: unknown): Prepared {
       const id = String(c?.id ?? `chunk_${i}`);
       const meta = isObj(c?.metadata) ? c.metadata : {};
       const pieces = split(content);
-      return pieces.map((p, j) => ({ id: pieces.length > 1 ? `${id}__${j + 1}` : id, content: p, metadata: meta }));
+      const index = typeof c?.index === "number" ? c.index : undefined;
+      return pieces.map((p, j) => ({ id: pieces.length > 1 ? `${id}__${j + 1}` : id, content: p, metadata: meta, index }));
     });
   } else {
     const listKey = Object.keys(data).find((k) => Array.isArray(data[k]) && data[k].length > 5 && isObj(data[k][0]));
@@ -120,12 +121,14 @@ export function prepare(fileName: string, data: unknown): Prepared {
     }
   }
 
-  const titre = makeTitle(type, header, fileName);
+  // Un en-tête peut imposer son titre affiché et son type (ex. loi, décret, arrêté) — utile pour les lots convertis.
+  const titre = str(header.titre_affiche) ?? makeTitle(type, header, fileName);
+  const docType = str(header.doc_type) ?? type;
   const smallHeader = Object.fromEntries(Object.entries(header).filter(([, v]) => !(typeof v === "string" && v.length > 4000)));
 
   const doc = {
     file_name: fileName,
-    doc_type: type,
+    doc_type: docType,
     numero: str(header.numero ?? header.reference_interne ?? header.reference),
     titre,
     objet: str(header.objet),
@@ -145,10 +148,10 @@ export function prepare(fileName: string, data: unknown): Prepared {
     const n = (seen.get(c.id) ?? 0) + 1; seen.set(c.id, n);
     const chunk_id = n > 1 ? `${c.id}__dup${n}` : c.id;
     const m = c.metadata;
-    const metadata = { ...m, title: titre, doc_type: type, numero: doc.numero, statut: m.statut ?? doc.statut };
+    const metadata = { ...m, title: titre, doc_type: docType, numero: doc.numero, statut: m.statut ?? doc.statut };
     const path = [m.domaine, m.sous_domaine].filter(Boolean).join(" › ");
     const embed_text = [titre, path, m.article ? `Article : ${m.article}` : "", "", c.content].filter((x, k) => x || k === 3).join("\n").slice(0, 8000);
-    return { chunk_id, chunk_index: i, content: c.content, metadata, embed_text };
+    return { chunk_id, chunk_index: typeof c.index === "number" ? c.index : i, content: c.content, metadata, embed_text };
   });
 
   return { doc, chunks };

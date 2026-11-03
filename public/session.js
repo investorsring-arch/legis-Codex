@@ -1,17 +1,18 @@
-// Session partagée entre les deux pages (valable 8 h, jeton vérifié côté serveur à chaque appel)
+// Session partagée entre les deux pages de l'onglet : elle prend fin à la fermeture de l'onglet ou du navigateur
+// (et au plus tard après 8 h). Le jeton est vérifié côté serveur à chaque appel.
 const RAG = (() => {
   const C = window.RAG_CONFIG;
   const KEY = "rag_session";
 
   function get() {
     try {
-      const s = JSON.parse(localStorage.getItem(KEY));
-      if (!s || !s.token || s.exp < Date.now()) { localStorage.removeItem(KEY); return null; }
+      const s = JSON.parse(sessionStorage.getItem(KEY));
+      if (!s || !s.token || s.exp < Date.now()) { sessionStorage.removeItem(KEY); return null; }
       return s;
     } catch { return null; }
   }
-  function set(s) { localStorage.setItem(KEY, JSON.stringify({ ...s, exp: Date.now() + 8 * 3600e3 })); }
-  function clear() { localStorage.removeItem(KEY); }
+  function set(s) { sessionStorage.setItem(KEY, JSON.stringify({ ...s, exp: Date.now() + 8 * 3600e3 })); }
+  function clear() { sessionStorage.removeItem(KEY); try { localStorage.removeItem(KEY); } catch {} }
 
   const fail = (msg, status = 0) => { const e = new Error(msg); e.status = status; return e; };
 

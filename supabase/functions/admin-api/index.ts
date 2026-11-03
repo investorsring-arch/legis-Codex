@@ -73,7 +73,7 @@ const actions: Record<string, (req: Request, body: any) => Promise<unknown>> = {
   },
 
   async stats(req) {
-    await requireSession(req);
+    await requireSession(req, "master");
     const day = new Date(Date.now() - 864e5).toISOString();
     const week = new Date(Date.now() - 7 * 864e5).toISOString();
     const q = () => supabase.from("rag_queries").select("id", { count: "exact", head: true });
@@ -88,7 +88,7 @@ const actions: Record<string, (req: Request, body: any) => Promise<unknown>> = {
   },
 
   async list_queries(req, body) {
-    await requireSession(req);
+    await requireSession(req, "master");
     const limit = Math.min(Math.max(Number(body.limit) || 50, 1), 200);
     const { data, error } = await supabase.from("rag_queries")
       .select("id, created_at, user_email, question, search_query, answer, sources_count, latency_ms, error")
@@ -193,9 +193,11 @@ const actions: Record<string, (req: Request, body: any) => Promise<unknown>> = {
     try { prep = prepare(fileName, body.data); } catch (e) { throw new HttpError(400, (e as Error).message); }
     if (!prep.chunks.length) throw new HttpError(400, "Aucun extrait exploitable dans ce fichier.");
     const settings = await loadSettings(supabase);
+    // Import en plusieurs parties (gros codes) : la liste complète des extraits du document est fournie à chaque partie.
+    const allIds: string[] | null = Array.isArray(body.all_chunk_ids) ? body.all_chunk_ids.map(String) : null;
 
     const { data: doc, error: e1 } = await supabase.from("rag_documents")
-      .upsert({ ...prep.doc, chunks_count: prep.chunks.length, updated_at: new Date().toISOString() }, { onConflict: "file_name" })
+      .upsert({ ...prep.doc, chunks_count: allIds ? allIds.length : prep.chunks.length, updated_at: new Date().toISOString() }, { onConflict: "file_name" })
       .select("id").single();
     if (e1) throw new HttpError(500, `Document : ${e1.message}`);
 
@@ -222,7 +224,7 @@ const actions: Record<string, (req: Request, body: any) => Promise<unknown>> = {
       }
     }
 
-    const keep = new Set(withHash.map((c) => c.chunk_id));
+    const keep = new Set(allIds ?? withHash.map((c) => c.chunk_id));
     const stale = [...old.keys()].filter((id) => !keep.has(id));
     if (stale.length) await supabase.from("rag_chunks").delete().eq("document_id", doc.id).in("chunk_id", stale);
 

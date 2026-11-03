@@ -9,6 +9,8 @@ public/                  ← LE SITE à mettre sur Cloudflare Pages (seul ce dos
 supabase/
   migrations/001_rag_site.sql          ← tables membres, réglages de l'assistant, journal
   migrations/002_base_documentaire.sql ← documents, extraits vectorisés, recherche hybride match_documents
+  migrations/003_vecteurs_compactes.sql ← vecteurs en demi-précision (halfvec) : 2 fois moins de place
+  migrations/004_recherche_rapide.sql  ← recherche via l'index HNSW (0,5 s sur 15 000 extraits)
   functions/rag-chat/           ← l'assistant : reformulation → recherche → réponse LLM
   functions/admin-api/          ← connexion, gestion des membres, réglages, test de recherche
   functions/_shared/            ← sécurité, moteur RAG, préparation des fichiers JSON (ingest.ts)
@@ -82,6 +84,16 @@ Formats acceptés : `{ "circulaire"|"note"|"document": {…}, "chunks": [{id, co
 fiches de synthèse sans chunks (`objet`, `resume`, `points_cles`…), listes (`liste_source` + tableau d'entrées).
 
 Vérifier ensuite : onglet **Assistant** → **Tester la recherche**.
+
+### 7. Lots au format « paire » (.md + .jsonl)
+Les lots où chaque texte est une paire `<doc>.md` (en-tête YAML) + `<doc>.jsonl` (un extrait par ligne) s'importent avec :
+```
+cd tools && npm install js-yaml
+node import_lex.mjs "<dossier>" --apercu                     # analyse, n'envoie rien
+node import_lex.mjs "<dossier>" "<mot de passe maître>"      # import
+```
+Le script regroupe les extraits courts (≈ 1 800 caractères), écarte les doublons, envoie les gros codes en plusieurs parties.
+Les documents sont enregistrés avec le préfixe `lex/` (visible dans l'onglet Base documentaire).
 
 ## Dépannage connexion
 | Message | Cause | Solution |

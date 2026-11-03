@@ -260,7 +260,8 @@ function prepare(fileName, data) {
       const id = String(c?.id ?? `chunk_${i}`);
       const meta = isObj(c?.metadata) ? c.metadata : {};
       const pieces = split(content);
-      return pieces.map((p, j) => ({ id: pieces.length > 1 ? `${id}__${j + 1}` : id, content: p, metadata: meta }));
+      const index = typeof c?.index === "number" ? c.index : void 0;
+      return pieces.map((p, j) => ({ id: pieces.length > 1 ? `${id}__${j + 1}` : id, content: p, metadata: meta, index }));
     });
   } else {
     const listKey = Object.keys(data).find((k) => Array.isArray(data[k]) && data[k].length > 5 && isObj(data[k][0]));
@@ -299,11 +300,12 @@ ${asText(data[k])}`).join("\n\n");
       raw = split(body).map((p, j) => ({ id: `fiche_${j + 1}`, content: p, metadata: meta }));
     }
   }
-  const titre = makeTitle(type, header, fileName);
+  const titre = str(header.titre_affiche) ?? makeTitle(type, header, fileName);
+  const docType = str(header.doc_type) ?? type;
   const smallHeader = Object.fromEntries(Object.entries(header).filter(([, v]) => !(typeof v === "string" && v.length > 4e3)));
   const doc = {
     file_name: fileName,
-    doc_type: type,
+    doc_type: docType,
     numero: str(header.numero ?? header.reference_interne ?? header.reference),
     titre,
     objet: str(header.objet),
@@ -322,10 +324,10 @@ ${asText(data[k])}`).join("\n\n");
     seen.set(c.id, n);
     const chunk_id = n > 1 ? `${c.id}__dup${n}` : c.id;
     const m = c.metadata;
-    const metadata = { ...m, title: titre, doc_type: type, numero: doc.numero, statut: m.statut ?? doc.statut };
+    const metadata = { ...m, title: titre, doc_type: docType, numero: doc.numero, statut: m.statut ?? doc.statut };
     const path = [m.domaine, m.sous_domaine].filter(Boolean).join(" \u203A ");
     const embed_text = [titre, path, m.article ? `Article : ${m.article}` : "", "", c.content].filter((x, k) => x || k === 3).join("\n").slice(0, 8e3);
-    return { chunk_id, chunk_index: i, content: c.content, metadata, embed_text };
+    return { chunk_id, chunk_index: typeof c.index === "number" ? c.index : i, content: c.content, metadata, embed_text };
   });
   return { doc, chunks };
 }
@@ -389,7 +391,7 @@ var actions = {
     return { role: s.role, email: s.email ?? null };
   },
   async stats(req) {
-    await requireSession(req);
+    await requireSession(req, "master");
     const day = new Date(Date.now() - 864e5).toISOString();
     const week = new Date(Date.now() - 7 * 864e5).toISOString();
     const q = () => supabase.from("rag_queries").select("id", { count: "exact", head: true });
@@ -403,7 +405,7 @@ var actions = {
     return { last24h: d.count ?? 0, last7d: w.count ?? 0, total: t.count ?? 0, activeAdmins: a.count ?? 0, blockedAdmins: b.count ?? 0 };
   },
   async list_queries(req, body) {
-    await requireSession(req);
+    await requireSession(req, "master");
     const limit = Math.min(Math.max(Number(body.limit) || 50, 1), 200);
     const { data, error } = await supabase.from("rag_queries").select("id, created_at, user_email, question, search_query, answer, sources_count, latency_ms, error").order("created_at", { ascending: false }).limit(limit);
     if (error) throw new HttpError(500, error.message);
@@ -506,7 +508,8 @@ var actions = {
     }
     if (!prep.chunks.length) throw new HttpError(400, "Aucun extrait exploitable dans ce fichier.");
     const settings = await loadSettings(supabase);
-    const { data: doc, error: e1 } = await supabase.from("rag_documents").upsert({ ...prep.doc, chunks_count: prep.chunks.length, updated_at: (/* @__PURE__ */ new Date()).toISOString() }, { onConflict: "file_name" }).select("id").single();
+    const allIds = Array.isArray(body.all_chunk_ids) ? body.all_chunk_ids.map(String) : null;
+    const { data: doc, error: e1 } = await supabase.from("rag_documents").upsert({ ...prep.doc, chunks_count: allIds ? allIds.length : prep.chunks.length, updated_at: (/* @__PURE__ */ new Date()).toISOString() }, { onConflict: "file_name" }).select("id").single();
     if (e1) throw new HttpError(500, `Document : ${e1.message}`);
     const { data: existing, error: e2 } = await supabase.from("rag_chunks").select("chunk_id, content_hash").eq("document_id", doc.id);
     if (e2) throw new HttpError(500, e2.message);
@@ -537,7 +540,7 @@ var actions = {
         if (error) throw new HttpError(500, `Extraits : ${error.message}`);
       }
     }
-    const keep = new Set(withHash.map((c) => c.chunk_id));
+    const keep = new Set(allIds ?? withHash.map((c) => c.chunk_id));
     const stale = [...old.keys()].filter((id) => !keep.has(id));
     if (stale.length) await supabase.from("rag_chunks").delete().eq("document_id", doc.id).in("chunk_id", stale);
     return { titre: prep.doc.titre, type: prep.doc.doc_type, chunks: prep.chunks.length, embedded: todo.length, removed: stale.length, ms: Date.now() - t0 };

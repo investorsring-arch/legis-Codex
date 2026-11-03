@@ -20,7 +20,7 @@
     <div id="top-actions" class="hidden" style="display:flex;gap:8px;align-items:center">
       <span class="muted" id="who" style="font-size:13px"></span>
       <button class="link-btn hidden" id="new-chat" type="button">Nouvelle conversation</button>
-      <a class="link-btn" href="admin.html">Tableau de bord</a>
+      <a class="link-btn hidden" id="dash-link" href="admin.html">Tableau de bord</a>
       <button class="link-btn" id="logout" type="button">Déconnexion</button>
     </div>
   </header>
@@ -93,6 +93,7 @@ function showApp() {
   $("#login-view").classList.add("hidden");
   $("#app").classList.remove("hidden"); $("#top-actions").classList.remove("hidden");
   $("#who").textContent = s.role === "master" ? "Administrateur principal" : s.email;
+  $("#dash-link").classList.toggle("hidden", s.role !== "master");
   // Suggestions définies dans le tableau de bord (sinon celles de config.js)
   RAG.call("admin-api", { action: "client_settings" })
     .then((r) => renderSuggestions(r.suggestions?.length ? r.suggestions : C.SUGGESTIONS))
