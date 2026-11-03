@@ -39,16 +39,21 @@
     <!-- ================= CONNEXION ================= -->
     <section id="login-view" class="card login hidden">
       <h2>Administration</h2>
-      <p class="muted">Connectez-vous pour gérer le site.</p>
+      <p class="muted">Espace réservé à l'administrateur principal.</p>
       <form id="login-form">
-        <label for="email">Email <span class="muted" style="font-weight:400">— laisser vide pour l'administrateur principal</span></label>
-        <input class="input" id="email" type="email" autocomplete="username" placeholder="membre@exemple.com">
-        <label for="password">Mot de passe</label>
+        <label for="password">Mot de passe maître</label>
         <input class="input" id="password" type="password" autocomplete="current-password" required>
         <button class="btn" style="width:100%;margin-top:18px" type="submit" id="login-btn">Se connecter</button>
         <div id="login-msg" class="alert err hidden"></div>
         <div id="config-warn" class="alert err hidden">Le site n'est pas encore relié à Supabase : ouvrez <b>config.js</b> et renseignez <b>SUPABASE_URL</b> et <b>SUPABASE_ANON_KEY</b>.</div>
       </form>
+    </section>
+
+    <!-- ================= ACCÈS REFUSÉ (membres) ================= -->
+    <section id="denied-view" class="card login hidden" style="text-align:center">
+      <h2>Accès réservé</h2>
+      <p class="muted">Le tableau de bord est réservé à l'administrateur principal. Votre compte membre permet de consulter la base documentaire.</p>
+      <a class="btn" href="index.html" style="display:inline-block;margin-top:12px;text-decoration:none">← Retour à l'accueil</a>
     </section>
 
     <!-- ================= TABLEAU DE BORD ================= -->
@@ -276,7 +281,7 @@ function modal({ title, text, input, okLabel = "Confirmer", danger = false }) {
 // ---------- Connexion ----------
 function showLogin(message) {
   RAG.clear(); role = null;
-  $("#dash-view").classList.add("hidden"); $("#logout").classList.add("hidden");
+  $("#dash-view").classList.add("hidden"); $("#denied-view").classList.add("hidden"); $("#logout").classList.add("hidden");
   $("#login-view").classList.remove("hidden");
   $("#who").textContent = "Administration du site";
   const m = $("#login-msg"); m.classList.toggle("hidden", !message); m.textContent = message || "";
@@ -286,10 +291,7 @@ $("#login-form").onsubmit = async (e) => {
   e.preventDefault();
   const btn = $("#login-btn"); btn.disabled = true; $("#login-msg").classList.add("hidden");
   try {
-    const params = { password: $("#password").value };
-    const email = $("#email").value.trim();
-    if (email) params.email = email;     // vide = administrateur principal
-    const r = await api("login", params);
+    const r = await api("login", { password: $("#password").value });   // mot de passe maître uniquement
     RAG.set({ token: r.token, role: r.role, email: r.email || "" });
     $("#password").value = "";
     showDashboard(r.role);
@@ -299,7 +301,13 @@ $("#login-form").onsubmit = async (e) => {
 $("#logout").onclick = () => showLogin();
 
 // ---------- Tableau de bord ----------
+function showDenied() {
+  $("#login-view").classList.add("hidden"); $("#dash-view").classList.add("hidden");
+  $("#denied-view").classList.remove("hidden"); $("#logout").classList.add("hidden");
+  $("#who").textContent = "Accès réservé";
+}
 function showDashboard(r) {
+  if (r !== "master") return showDenied();   // les membres n'ont pas accès au tableau de bord
   role = r;
   const isMaster = role === "master";
   $("#login-view").classList.add("hidden");
